@@ -1,0 +1,441 @@
+# Excerpt from Prolific API OpenAPI Specification (publicapi.yaml)
+# Contains definitions relevant to the Python scripts provided.
+
+# --- Base Information ---
+openapi: 3.0.1
+info:
+  title: Prolific API for researchers (Excerpt)
+servers:
+  - url: https://api.prolific.com
+    description: Production
+
+# --- Paths Used by Scripts ---
+paths:
+  /api/v1/users/me/:
+    get:
+      tags:
+        - Users
+      summary: Retrieve a user
+      description: |-
+        Use this endpoint to test your token and retrieve the basic information of your account.
+        Add an `Authorization` header with the value `Token <your token>`.
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+      operationId: GetUser
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+      security:
+        - token: []
+
+  /api/v1/surveys/:
+    post:
+      tags:
+        - Surveys
+      summary: Create survey
+      description: |-
+        You can create a survey with either `sections -> questions` or just `questions`. This allows you to decide
+        how much flexibility you want in your survey design. However, if you want to render the survey in the Prolific Application, you must use `sections`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/SurveyIn"
+      responses:
+        "201":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SurveyOut"
+        "4XX":
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      operationId: CreateSurvey
+      security:
+        - token: []
+
+  /api/v1/studies/:
+    post:
+      tags:
+        - Studies
+      summary: Create a draft study
+      externalDocs:
+        description: Publish your study
+        url: https://docs.prolific.com/docs/api-docs/public/studies#tag/Studies/operation/PublishStudy
+      description: |-
+        Create a draft study. Publishing a study is a two step process, first create a draft study then publish it.
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateStudy"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Study"
+        "4XX":
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+      operationId: CreateStudy
+      security:
+        - token: []
+
+  /api/v1/studies/{id}/transition/:
+    post:
+      tags:
+        - Studies
+      summary: Publish a draft study
+      description: |-
+        Once the study is published, participants can partake in your experiment or survey.
+        There are other status transitions available once the study is published:
+        - PAUSE: Pause the study
+        - START: Start a paused study
+        - STOP: Stop a study completely, to make it active again you will need to increase the number of places
+        To learn more about it check out [help center](https://researcher-help.prolific.com/en/article/ed5610)
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          description: Study id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StudyTransition"
+        required: false
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Study"
+        "4XX":
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      operationId: PublishStudy
+      security:
+        - token: []
+
+  /api/v1/studies/{id}/submissions/:
+    get:
+      tags:
+        - Studies
+      summary: List study submissions
+      description: Returns basic information of the submissions, including the
+        study id, participant id, status and start timestamp
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          description: Study id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List submissions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmissionListResponse"
+        "4XX":
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+      operationId: GetStudySubmissions
+      security:
+        - token: []
+
+  /api/v1/submissions/{id}/transition/:
+    post:
+      tags:
+        - Submissions
+      summary: Approve or reject a submission
+      description: |-
+        Transition a submission to `APPROVED`, `REJECTED`, `PARTIALLY APPROVED`, `AWAITING REVIEW` or `SCREENED OUT`. Once the status is changed, it can not be restored to its previous value.
+        You can only transition a study to PARTIALLY APPROVED or SCREENED OUT by:
+          - setting up the study with the appropriate completion codes (only some workspaces have access to these features)
+          - providing the correct completion code in the request body
+          - providing the necessary data in the request body (to PARTIALLY APPROVE a submission)
+        Note this endpoint is idempotent, so if you make the same request twice, the second request will be ignored.
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          description: |-
+            Submission id. This is the ID we pass to the survey platform
+            using %SESSION_ID%
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmissionTransition"
+        required: false
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Submission"
+        "4XX":
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      operationId: TransitionSubmission
+      security:
+        - token: []
+
+# --- Relevant Schemas ---
+components:
+  schemas:
+    # Basic Schemas
+    Error:
+      required: [ error ]
+      type: object
+      additionalProperties: true
+      properties:
+        error: { $ref: "#/components/schemas/ErrorDetail" }
+    ErrorDetail:
+      additionalProperties: false
+      required: [ status, error_code, title, detail ]
+      type: object
+      properties:
+        status: { type: integer, description: Status code as in the http standards }
+        error_code: { type: integer, description: Internal error code }
+        title: { type: string, description: Error title }
+        detail:
+          anyOf:
+            - { type: string, description: Error message }
+            - { type: array, description: Error messages }
+            - type: object
+              description: All fields with validation errors
+              additionalProperties: true
+              properties:
+                any_field:
+                  description: Name of the field with a validation error and as a value an array with the error descriptions
+                  type: array
+                  items: { type: string, description: Error message for that field }
+          description: Error detail
+        additional_information: { type: string, description: Optional extra information }
+        traceback: { type: string, description: Optional debug information }
+        interactive: { type: boolean }
+
+    # User Schema
+    User:
+      additionalProperties: true
+      required: [ email, id ]
+      type: object
+      properties:
+        id: { type: string }
+        email: { type: string }
+
+    # Survey Schemas
+    SurveyIn:
+      title: SurveyIn
+      required: [ researcher_id, title ]
+      type: object
+      properties:
+        researcher_id: { title: Researcher Id, type: string, description: The Prolific researcher ID., example: "7172727272" }
+        sections: { title: Sections, type: array, items: { "$ref": "#/components/schemas/SurveySection" }, description: An array of sections in the survey, or use `questions`. }
+        questions: { title: Questions, type: array, items: { "$ref": "#/components/schemas/SurveyQuestion" }, description: An array of questions in the survey, or use `sections`. }
+        title: { title: Title, type: string, description: The survey title., example: A survey about vegetables }
+      description: The model used to create a `Survey`.
+    SurveyOut:
+      title: SurveyOut
+      required: [ researcher_id, title ]
+      type: object
+      properties:
+        _id: { title: " Id", type: string, description: Auto generated by the system. }
+        date_created: { title: Date Created, type: string, description: The date/time the survey was created (UTC)., format: date-time, example: "2022-05-27T08:43:12" }
+        date_modified: { title: Date Modified, type: string, description: The date/time the survey was modified (UTC)., format: date-time, example: "2022-05-27T08:43:12" }
+        researcher_id: { title: Researcher Id, type: string, description: The Prolific researcher ID., example: "7172727272" }
+        sections: { title: Sections, type: array, items: { "$ref": "#/components/schemas/SurveySection" }, description: "Optional: An array of sections in the survey, otherwise `questions` will be defined." }
+        questions: { title: Questions, type: array, items: { "$ref": "#/components/schemas/SurveyQuestion" }, description: "Optional: An array of questions in the survey, otherwise `sections` will be defined." }
+        title: { title: Title, type: string, description: The survey title., example: A survey about vegetables }
+      description: The model used to create a serialised representation a `Survey`.
+    SurveySection:
+      title: Section
+      required: [ questions, title ]
+      type: object
+      properties:
+        id: { title: Id, type: string, description: Auto generated by the system., format: uuid }
+        questions: { title: Questions, maxItems: 5, type: array, items: { "$ref": "#/components/schemas/SurveyQuestion" }, description: An array of questions a section within a Survey. }
+        title: { title: Title, type: string, description: The section title., example: Root vegetables }
+      description: Responsible for providing a section to the survey.
+    SurveyQuestion:
+      title: Question
+      required: [ answers, title, type ]
+      type: object
+      properties:
+        answers: { title: Answers, maxItems: 10, type: array, items: { "$ref": "#/components/schemas/SurveyAnswerOption" }, description: An array of answer options for a question. }
+        id: { title: Id, type: string, format: uuid }
+        title: { title: Title, maxLength: 200, type: string, description: The question title., example: What is your favourite root vegetable? }
+        type: { allOf: [ { "$ref": "#/components/schemas/SurveyQuestionType" } ], description: The type of question being asked., example: single }
+      description: Responsible for defining a question within a survey.
+    SurveyAnswerOption:
+      title: AnswerOption
+      required: [ value ]
+      type: object
+      properties:
+        id: { title: Id, type: string, format: uuid }
+        value: { title: Value, maxLength: 140, type: string, description: The answer option value that can be selected., example: Potato }
+      description: Responsible for defining an answer model for a given question
+    SurveyQuestionType:
+      title: QuestionType
+      enum: [ single, multiple ]
+      type: string
+      description: Responsible for articulating the question type.
+
+    # Study Schemas
+    BaseStudy: # Abridged - showing relevant fields for creation
+      type: object
+      properties:
+        name: { type: string, description: Public name or title of the study }
+        internal_name: { type: string, nullable: true, description: Internal name of the study, not shown to participants }
+        description: { type: string, description: Description of the study for the participants }
+        external_study_url: { type: string, description: URL of the survey or experiment... Pass {{%PROLIFIC_PID%}}, {{%STUDY_ID%}}, {{%SESSION_ID%}} }
+        prolific_id_option: { type: string, enum: [ question, url_parameters, not_required ], description: How participant ID is passed }
+        completion_codes: { type: array, items: { $ref: "#/components/schemas/CompletionCode" } }
+        total_available_places: { type: number, description: How many participants are you looking to recruit }
+        estimated_completion_time: { type: number, minimum: 1, description: Estimated duration in minutes }
+        maximum_allowed_time: { type: number, description: Max time in minutes }
+        reward: { type: number, description: Payment in cents }
+        device_compatibility: { type: array, items: { type: string, enum: [ desktop, tablet, mobile ] } }
+        peripheral_requirements: { type: array, items: { type: string, enum: [ audio, camera, download, microphone ] } }
+        filters: { type: array, nullable: true, description: Array of filters, items: { anyOf: [ { $ref: "#/components/schemas/SelectFilter" }, { $ref: "#/components/schemas/RangeFilter" } ] } }
+        project: { type: string, description: Project id (optional) }
+        # ... other fields omitted for brevity ...
+    CreateStudy:
+      allOf:
+        - $ref: "#/components/schemas/BaseStudy"
+        - required: [ name, description, external_study_url, prolific_id_option, completion_codes, estimated_completion_time, reward, total_available_places ]
+    Study: # Abridged response structure
+      additionalProperties: true
+      allOf:
+        - type: object
+          properties:
+            id: { type: string, readOnly: true, description: Study id }
+            status: { type: string, enum: [ UNPUBLISHED, SCHEDULED, ACTIVE, AWAITING_REVIEW, PAUSED, COMPLETED ], readOnly: true, description: Status of the study }
+        - $ref: "#/components/schemas/CreateStudy" # Inherits properties
+        - required: [ id, status, maximum_allowed_time ]
+    CompletionCode: # Simplified structure for relevance
+      type: object
+      required: [ code, code_type, actions ]
+      properties:
+        code: { type: string, nullable: true, description: The code participant enters/is redirected with }
+        code_type: { type: string, enum: [ COMPLETED, FAILED_ATTENTION_CHECK, FOLLOW_UP_STUDY, GIVE_BONUS, INCOMPATIBLE_DEVICE, NO_CONSENT, OTHER ], description: Label for the code }
+        actions: { type: array, items: { $ref: "#/components/schemas/CompletionCodeAction" } } # See full spec for action types
+        actor: { type: string, enum: [ participant, researcher ], default: participant }
+    CompletionCodeAction: # Placeholder - Specific actions like AutomaticallyApprove, ManuallyReview etc. are defined in full spec
+        type: object
+        properties:
+          action: { type: string } # e.g., "MANUALLY_REVIEW", "AUTOMATICALLY_APPROVE"
+    StudyTransition:
+      required: [ action ]
+      type: object
+      properties:
+        action: { type: string, description: Action to execute (e.g., PUBLISH, PAUSE, START, STOP) }
+
+    # Submission Schemas
+    SubmissionShort: # Structure returned by listing submissions
+      additionalProperties: true
+      required: [ id, started_at, participant_id, status, has_siblings ]
+      type: object
+      properties:
+        id: { type: string, readOnly: true, description: Submission id. }
+        participant_id: { type: string, description: Participant id. }
+        status: { type: string, enum: [ RESERVED, ACTIVE, TIME-OUT, AWAITING_REVIEW, APPROVED, RETURNED, REJECTED, SCREENED_OUT ], readOnly: true, description: Status of the submission. }
+        started_at: { type: string, format: date-time, description: Date started }
+        completed_at: { type: string, format: date-time, nullable: true, description: Date completed }
+        has_siblings: { type: boolean, description: Whether the submission has sibling submissions }
+        study_code: { type: string, nullable: true, description: The completion code used by the participant }
+        return_requested: { type: string, format: date-time, nullable: true }
+    SubmissionListResponse:
+      additionalProperties: true
+      required: [ results ]
+      type: object
+      properties:
+        results: { type: array, items: { $ref: "#/components/schemas/SubmissionShort" } }
+    Submission: # Structure returned by getting/transitioning single submission
+      additionalProperties: true
+      required: [ id, started_at, status, study_id ]
+      type: object
+      properties:
+        id: { type: string, readOnly: true, description: The id of the submission }
+        completed_at: { type: string, nullable: true }
+        entered_code: { type: string, nullable: true }
+        participant: { type: string }
+        started_at: { type: string }
+        status: { type: string, enum: [ ACTIVE, APPROVED, PARTIALLY_APPROVED, AWAITING_REVIEW, REJECTED, RESERVED, RETURNED, TIMED-OUT, SCREENED_OUT, UNKNOWN ] }
+        study_id: { type: string }
+        bonus_payments: { type: array, items: { type: number } }
+        return_requested: { type: string, format: date-time, nullable: true }
+    SubmissionTransition:
+      required: [ action ]
+      type: object
+      properties:
+        action: { type: string, enum: [ APPROVE, REJECT, COMPLETE ], description: Action to execute. }
+        message: { type: string, description: Required if action is 'REJECT' (min 100 chars) }
+        rejection_category: { type: string, enum: [ TOO_QUICKLY, TOO_SLOWLY, FAILED_INSTRUCTIONS, INCOMP_LONGITUDINAL, FAILED_CHECK, LOW_EFFORT, MALINGERING, NO_CODE, BAD_CODE, NO_DATA, UNSUPP_DEVICE, OTHER ], description: Required if action is 'REJECT' }
+        completion_code: { type: string, description: Required if action is 'COMPLETE' }
+        completion_code_data: { type: object, description: Required if action is 'COMPLETE' and code uses DYNAMIC_PAYMENT } # See full spec
+
+  # Security Scheme (for context)
+  securitySchemes:
+    token:
+      type: apiKey
+      description: Use 'Authorization: Token <your_token>' header.
+      name: Authorization
+      in: header 

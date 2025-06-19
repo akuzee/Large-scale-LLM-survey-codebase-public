@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.pyc
+
+# IDE / Editor specific
+.vscode/
+.idea/
+
+# OS-specific
+.DS_Store
+
+# Credentials - DO NOT COMMIT
+config.py 

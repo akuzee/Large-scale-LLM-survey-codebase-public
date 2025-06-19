@@ -1,0 +1,264 @@
+---
+title: "R Notebook"
+output: NULL
+editor_options: 
+  chunk_output_type: inline
+---
+
+# In this file we upload the response data from Qualtrics and the demographic data from Prolific. We reorganize the data to be merged with the other survey
+
+# Input: 
+## Response data from Qualtrics
+
+## Demo data 
+
+# Output:
+## Re-organized data
+
+
+# Load libraries 
+```{r}
+library(dplyr)
+library(here)
+library(data.table)
+library(tidyverse)
+library(tidyr)
+library(purrr)
+library(stringr)
+library(readxl)
+library(lubridate)
+```
+
+# Load data
+```{r}
+# Load the responses from Qualtrics as dataframe
+resp_data <- as.data.frame(fread(here('FULL SURVEY data/Raw Qualtrics Data/survey_export.csv')))
+
+# Load prolific demo data
+#prolific_demo_data <- read.csv(here('FULL SURVEY data/Prolific demo data/Bench1_demo1_21Feb25_BH.csv'))
+```
+
+# Cleaning the population data - removing unnecessary rows/columns
+```{r}
+# Removing header rows, no data
+resp_data_cleaned <- resp_data[-c(1,2),]
+rm(resp_data)
+
+# Edit data variable names to remove spaces and then convert periods to underscores
+names(resp_data_cleaned) <- make.names(names(resp_data_cleaned), unique = TRUE)
+names(resp_data_cleaned) <- gsub("\\.", "_", names(resp_data_cleaned))
+names(resp_data_cleaned) <- gsub("__+", "_", names(resp_data_cleaned)) # Consolidate multiple underscores
+names(resp_data_cleaned) <- sub("_$", "", names(resp_data_cleaned))    # Remove trailing underscore
+
+# Remove unnecessary participant data by name
+resp_data_cleaned <- resp_data_cleaned %>%
+  dplyr::select(-RecipientLastName, -RecipientFirstName, -RecipientEmail)
+
+# Remove unnecessary columns by string (keep click-tracking columns for later processing)
+#resp_data_cleaned <- resp_data_cleaned %>%
+#  dplyr::select(
+#    -contains("_Confirmation"),
+#    -contains("Progress")
+#  )
+```
+
+# Adding Wave variable
+```{r}
+resp_data_cleaned <- resp_data_cleaned %>%
+  mutate(Wave = case_when(
+         StartDate < "2025-02-25 12:00:00" ~ "Wave 1+2",
+         "2025-02-25 12:00:00" < StartDate & StartDate < "2025-03-07 10:00:00" ~ "Wave 3",
+         StartDate > "2025-03-10 10:00:00" ~ "Wave 4"
+         )) 
+```
+
+# Removing demographic data and data cost data and combining with prolific data so it can be joined later by prolific ID
+```{r}
+# Draw demographic info from data to append by prolific id later - draw out Data cost questions here too?
+data_demographic_selection <- resp_data_cleaned %>%
+  dplyr::select(
+    #contains("Click"),
+    contains("rolific_id"),
+    contains("informed_consent"),
+    contains("xperience"),
+    contains("ResponseId"),
+    contains("demo"),
+    contains("DD"),
+    contains("demo"),
+    contains("attncheck")
+  )
+
+# Merge with prolific data
+#data_demographic_selection <- full_join(data_demographic_selection,prolific_demo_data,  by = c("prolific_id" ))
+```
+
+# Count failed attn checks
+```{r}
+# add failed attn check count to dataframe
+resp_data_cleaned <- resp_data_cleaned %>%
+  # converting attn checks to "1" if false, "0" otherwise
+    mutate(attncheck1_value = ifelse(attncheck1 != "", 1, 0),
+          attncheck2_value = ifelse(attncheck2 != "Somewhat agree" & grepl("ttention", Q26), 1, 0),
+          attncheck3_value = ifelse(attncheck3 != "Somewhat disagree" & attncheck3 != "Strongly disagree",  1, 0)) %>%
+  #summing each participants' failed attention checks
+  mutate(failed_attn_checks = attncheck1_value + attncheck2_value + attncheck3_value,
+         no_compensation = ifelse(failed_attn_checks>1, 1, 0)
+           )
+
+# investigate attn checks directly
+attn_checks_summary <- resp_data_cleaned %>%
+  filter(StartDate > "2025-02-25 00:00:00") %>%
+  select(contains("attn") | contains("rolific") | contains("ccupation")) %>%
+  # select people who saw all attn checks (finished survey)
+  filter(attncheck2 != "" & attncheck3 != "") %>%
+  filter(failed_attn_checks>1)
+  #arrange(desc(occupation_selection))
+
+```
+
+# Coalese responses from the same question but different loops into one column per question
+```{r}
+collapsed_data <- resp_data_cleaned %>%
+  # 1. Combine work experience columns
+  mutate(work_experience = coalesce(!!!select(., matches("work_experience_\\d+")), NA_character_)) %>%
+  
+  # 2. Collapse task click data by type
+  mutate(
+    task_first_click = coalesce(!!!select(., matches("task_click1_1_\\d+")), NA_character_),
+    task_last_click = coalesce(!!!select(., matches("task_click1_2_\\d+")), NA_character_),
+    task_page_submit = coalesce(!!!select(., matches("task_click1_3_\\d+")), NA_character_),
+    task_click_count = coalesce(!!!select(., matches("task_click1_4_\\d+")), NA_character_)
+  ) %>%
+  
+  # 3. Collapse task understanding
+  mutate(task_understanding = coalesce(!!!select(., matches("task_understanding1_\\d+")), NA_character_)) %>%
+  
+  # 4. Collapse time to complete (keeping 1/2 separate)
+  mutate(
+    time_to_complete_1 = coalesce(!!!select(., matches("time_to_complete1_1_TEXT_\\d+")), NA_character_),
+    time_to_complete_2 = coalesce(!!!select(., matches("time_to_complete1_2_TEXT_\\d+")), NA_character_)
+  ) %>%
+  
+  # 5. Collapse task difficulty
+  mutate(task_difficulty = coalesce(!!!select(., matches("task_difficulty1_\\d+")), NA_character_)) %>%
+  
+  # 6. Collapse task frequency
+  mutate(task_frequency = coalesce(!!!select(., matches("task_frequency1_\\d+")), NA_character_)) %>%
+  
+  # 7. Collapse task req info type (keeping 1-4 separate)
+  mutate(
+    task_req_info_type_1 = coalesce(!!!select(., matches("task_req_info_type1_1_\\d+")), NA_character_),
+    task_req_info_type_2 = coalesce(!!!select(., matches("task_req_info_type1_2_\\d+")), NA_character_),
+    task_req_info_type_3 = coalesce(!!!select(., matches("task_req_info_type1_3_\\d+")), NA_character_),
+    task_req_info_type_4 = coalesce(!!!select(., matches("task_req_info_type1_4_\\d+")), NA_character_)
+  ) %>%
+  
+  # 8. Collapse response click data by type
+  mutate(
+    resp_first_click = coalesce(!!!select(., matches("resp_click_1_1_\\d+")), NA_character_),
+    resp_last_click = coalesce(!!!select(., matches("resp_click_1_2_\\d+")), NA_character_),
+    resp_page_submit = coalesce(!!!select(., matches("resp_click_1_3_\\d+")), NA_character_),
+    resp_click_count = coalesce(!!!select(., matches("resp_click_1_4_\\d+")), NA_character_)
+  ) %>%
+  
+  # 9. Collapse response evaluation metrics (keeping _1/_2 separate)
+  mutate(
+    pdf_check = coalesce(!!!select(., matches("pdf_check1_\\d+")), NA_character_),
+    resp_understandable = coalesce(!!!select(., matches("resp_understandable1_\\d+")), NA_character_),
+    resp_relevance = coalesce(!!!select(., matches("resp_relevance1_\\d+")), NA_character_),
+    resp_accuracy = coalesce(!!!select(., matches("resp_accuracy1_\\d+")), NA_character_),
+    resp_tone = coalesce(!!!select(., matches("resp_tone1_\\d+")), NA_character_),
+    resp_typical_time_1 = coalesce(!!!select(., matches("resp_typical_time1_1_TEXT_\\d+")), NA_character_),
+    resp_typical_time_2 = coalesce(!!!select(., matches("resp_typical_time1_2_TEXT_\\d+")), NA_character_),
+    resp_employee_quality = coalesce(!!!select(., matches("resp_emplyee_qualty1_\\d+")), NA_character_), # Typo emplyee is in CSV
+    resp_why_not_accept = coalesce(!!!select(., matches("resp_why_not_accept1_\\d+_\\d+")), NA_character_),
+    resp_time_to_polish_1 = coalesce(!!!select(., matches("resp_time_2_polish1_1_TEXT_\\d+")), NA_character_),
+    resp_time_to_polish_2 = coalesce(!!!select(., matches("resp_time_2_polish1_2_TEXT_\\d+")), NA_character_)
+  ) %>%
+  
+  # 10. Collapse manager rating variables (keeping 1-9 separate)
+  mutate(
+    resp_manager_rating_1 = coalesce(!!!select(., matches("resp_manager_rating1_4_\\d+")), NA_character_),
+    resp_manager_rating_2 = coalesce(!!!select(., matches("resp_manager_rating1_5_\\d+")), NA_character_),
+    resp_manager_rating_3 = coalesce(!!!select(., matches("resp_manager_rating1_6_\\d+")), NA_character_),
+    resp_manager_rating_4 = coalesce(!!!select(., matches("resp_manager_rating1_7_\\d+")), NA_character_),
+    resp_manager_rating_5 = coalesce(!!!select(., matches("resp_manager_rating1_8_\\d+")), NA_character_),
+    resp_manager_rating_6 = coalesce(!!!select(., matches("resp_manager_rating1_9_\\d+")), NA_character_),
+    resp_manager_rating_7 = coalesce(!!!select(., matches("resp_manager_rating1_10_\\d+")), NA_character_),
+    resp_manager_rating_8 = coalesce(!!!select(., matches("resp_manager_rating1_11_\\d+")), NA_character_),
+    resp_manager_rating_9 = coalesce(!!!select(., matches("resp_manager_rating1_12_\\d+")), NA_character_)
+  ) %>%
+  
+  # Combining manager acceptance ratings into one
+   mutate(response_manager_accept = case_when(
+   resp_manager_rating_1 == "A manager would view this response as..." ~ "Not useful: Requires complete rework (needs to be started over from scratch)",
+   resp_manager_rating_2 == "A manager would view this response as..." ~ "Not useful: Requires extensive rework (almost everything needs to be changed)",
+   resp_manager_rating_3 == "A manager would view this response as..." ~ "Not useful: Requires substantial rework (most elements need to be changed)",
+   resp_manager_rating_4 == "A manager would view this response as..." ~ "Useful with edits: Requires major edits (needs substantial work)",
+   resp_manager_rating_5 == "A manager would view this response as..." ~ "Useful with edits: Requires moderate edits (needs some work)",
+   resp_manager_rating_6 == "A manager would view this response as..." ~ "Useful with edits: Requires minor edits (needs some refinement)",
+   resp_manager_rating_7 == "A manager would view this response as..." ~ "Useful as is: Requires no edits to be minimally sufficient",
+   resp_manager_rating_8 == "A manager would view this response as..." ~ "Useful as is: Requires no edits to be of average quality",
+   resp_manager_rating_9 == "A manager would view this response as..." ~ "Useful as is: Requires no edits to be of superior quality",
+   TRUE ~ NA_character_
+ )) %>%
+  
+  # Create new click variables
+  
+  mutate(task_page_duration = as.numeric(task_last_click) - as.numeric(task_first_click),
+         response_page_duration = as.numeric(resp_last_click) - as.numeric(resp_first_click)) %>%
+  
+  # 11. Keep task ID, URL, description, response URL, and attention checks separate
+  select(
+    # Original columns to retain
+    prolific_id, PROLIFIC_PID, Wave, StartDate, EndDate, Status, IPAddress,
+    Finished, ResponseID, informed_consent, occupation_selection, 
+    selected_occupation,
+    occupation_confirm, work_experience, 
+    
+    task_page_duration, task_first_click, task_last_click, task_page_submit, task_click_count,
+    task_understanding, time_to_complete_1, time_to_complete_2,
+    task_difficulty, task_frequency,
+    task_req_info_type_1, task_req_info_type_2, task_req_info_type_3, 
+    task_req_info_type_4,
+    
+    response_page_duration, resp_first_click, resp_last_click, resp_page_submit, resp_click_count,
+    pdf_check, resp_understandable, resp_relevance, resp_accuracy, 
+    resp_tone, resp_typical_time_1, resp_typical_time_2, 
+    resp_employee_quality,
+    response_manager_accept,
+    resp_why_not_accept, resp_time_to_polish_1, resp_time_to_polish_2,
+    
+   
+    matches("attncheck\\d+"),
+    matches("TASK_ID_\\d+"), 
+    matches("TASK_URL_\\d+"),
+    matches("TASK_DESCRIPTION_\\d+"),
+    matches("RESPONSE_URL_\\d+"),
+    
+    
+    
+    # Demo data
+    contains("data_"), contains("demo_"),
+    
+    
+    # Other specific columns to retain
+    
+    occupation_id, occupation_task_count,
+    current_task_url_number, end_task_loop, all_tasks_rejected,
+    accepted_task_url_number, accepted_task_url, accepted_task_id,
+    accepted_task_description, available_task_count, available_job_numbers
+  )
+
+
+```
+
+# Final checks 
+```{r}
+```
+
+# Saving 
+```{r}
+write.csv(collapsed_data, '/Users/adamkuzee/MIT Dropbox/adam/LLM survey/FULL SURVEY/Code and data/FULL SURVEY data/Cleaned survey data/full_survey_cleaned_data.csv')
+```
+

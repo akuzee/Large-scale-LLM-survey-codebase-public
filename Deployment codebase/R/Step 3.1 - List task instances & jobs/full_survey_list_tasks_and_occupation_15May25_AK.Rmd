@@ -1,0 +1,240 @@
+---
+title: "List Tasks and Occupations"
+output: NULL
+editor_options: 
+  chunk_output_type: inline
+---
+
+# Input: 
+- Cleaned/validated survey data from Qualtrics
+- Dataframe of occupation/task pairs
+
+# Output: 
+- List of occupation numbers to close in Qualtrics/Prolific
+- Dataframes of completed and not completed tasks
+
+```{r setup, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(readxl)
+library(here)
+```
+
+```{r load_data}
+# Set working directory
+#setwd('/Users/adamkuzee/MIT Dropbox/adam/LLM survey/FULL SURVEY/Code and data')
+
+# Check if clean survey data exists
+survey_data_path <- here("FULL SURVEY data/Final survey data/valid_survey_data_15May25AK.csv")
+
+if (!file.exists(survey_data_path)) {
+  cat("No clean survey data found at:", survey_data_path, "\n")
+  cat("Script will exit early. Please run data cleaning steps first.\n")
+  knitr::knit_exit()
+}
+
+# Load the clean survey data
+survey_data <- read_csv(survey_data_path)
+
+# Load the occupation/task pairs dataframe
+occupation_task_df <- read_excel(here("FULL SURVEY data/Task instances/Formatted/task_urls_HTML_benchmark_PDF_2_19_ALL_FINAL.xlsx"))
+```
+
+```{r examine_data}
+# Examine structure of both datasets to understand matching fields
+glimpse(survey_data)
+glimpse(occupation_task_df)
+
+# Check what task and occupation identifiers exist in survey data
+names(survey_data)[grep("task|occupation", names(survey_data), ignore.case = TRUE)]
+```
+
+```{r match_completed_tasks}
+# Extract completed tasks from survey data
+# Looking at the CSV, it seems task_id is stored in TASK_ID_1 through TASK_ID_20 columns
+# and occupation_id is a column
+
+# Get all task IDs from survey data (might be spread across multiple columns)
+task_id_cols <- names(survey_data)[grep("^TASK_ID_", names(survey_data))]
+
+# Create a long format dataframe of completed tasks
+completed_tasks <- survey_data %>%
+  select(prolific_id, occupation_id, all_of(task_id_cols)) %>%
+  pivot_longer(cols = all_of(task_id_cols), 
+               names_to = "task_column", 
+               values_to = "task_id") %>%
+  filter(!is.na(task_id)) %>%
+  select(prolific_id, occupation_id, task_id) %>%
+  distinct()
+
+# Show summary of completed tasks
+cat("Number of completed tasks:", nrow(completed_tasks), "\n")
+cat("Number of unique participants:", n_distinct(completed_tasks$prolific_id), "\n")
+cat("Number of unique occupations:", n_distinct(completed_tasks$occupation_id), "\n")
+```
+
+```{r create_output_dataframes}
+# First, we need to understand the structure of occupation_task_df
+# to properly match with completed tasks
+
+# Check column names in occupation_task_df
+names(occupation_task_df)
+
+# Assuming the occupation_task_df has columns for occupation and task identifiers
+# We'll need to adjust based on actual column names
+
+# Create a standardized version of occupation_task_df with consistent naming
+# This will depend on the actual column names in the file
+# For now, I'll create a flexible matching approach
+
+# Look for columns that might contain task IDs
+task_cols <- names(occupation_task_df)[grep("task.*id|task_id", names(occupation_task_df), ignore.case = TRUE)]
+occupation_cols <- names(occupation_task_df)[grep("occupation", names(occupation_task_df), ignore.case = TRUE)]
+
+if(length(task_cols) >= 0 && length(occupation_cols) >= 0) {
+  # Use the first matching columns
+  task_col <- task_cols[1]
+  occupation_col <- occupation_cols[1]
+  
+  # Create standardized dataframe
+  occupation_task_std <- occupation_task_df %>%
+    rename(task_id = !!task_col,
+           occupation_id = !!occupation_col) %>%
+    mutate(task_id = as.character(task_id),
+           occupation_id = as.character(occupation_id))
+} else {
+  # If column names don't match expected patterns, we'll need to inspect manually
+  print("Column names in occupation_task_df:")
+  print(names(occupation_task_df))
+  #stop("Please check column names and adjust the script accordingly")
+}
+
+# Match completed tasks with the full task list
+occupation_task_std <- occupation_task_std %>%
+  mutate(row_number = row_number())  # Add row number to preserve original order
+
+# Create dataframe of completed tasks
+completed_df <- occupation_task_std %>%
+  inner_join(completed_tasks %>% select(occupation_id, task_id) %>% distinct(), 
+             by = c("occupation_id", "task_id"))
+
+# Create dataframe of not completed tasks
+not_completed_df <- occupation_task_std %>%
+  anti_join(completed_tasks %>% select(occupation_id, task_id) %>% distinct(), 
+            by = c("occupation_id", "task_id"))
+
+cat("\nCompleted tasks:", nrow(completed_df), "\n")
+cat("Not completed tasks:", nrow(not_completed_df), "\n")
+```
+
+```{r identify_completed_occupations}
+# Find occupations that are fully completed
+# (i.e., occupations that appear in occupation_task_std but NOT in not_completed_df)
+
+all_occupations <- occupation_task_std %>%
+  group_by(occupation_id) %>%
+  summarise(total_tasks = n()) %>%
+  ungroup()
+
+incomplete_occupations <- not_completed_df %>%
+  group_by(occupation_id) %>%
+  summarise(incomplete_tasks = n()) %>%
+  ungroup()
+
+# Occupations that are fully completed have no incomplete tasks
+fully_completed_occupations <- all_occupations %>%
+  left_join(incomplete_occupations, by = "occupation_id") %>%
+  filter(is.na(incomplete_tasks)) %>%
+  pull(occupation_id)
+
+cat("\nFully completed occupations:", length(fully_completed_occupations), "\n")
+print(fully_completed_occupations)
+```
+
+```{r create_occupation_numbers}
+# Create occupation numbers based on order in original dataframe
+# Get unique occupations in order of first appearance
+occupation_order <- occupation_task_std %>%
+  arrange(row_number) %>%
+  distinct(occupation_id, .keep_all = TRUE) %>%
+  mutate(occupation_number = row_number()) %>%
+  select(occupation_id, occupation_number)
+
+# Get occupation numbers for fully completed occupations
+completed_occupation_numbers <- occupation_order %>%
+  filter(occupation_id %in% fully_completed_occupations) %>%
+  pull(occupation_number) %>%
+  sort()
+
+# Create comma-separated string
+occupation_numbers_string <- paste(completed_occupation_numbers, collapse = ", ")
+
+cat("\nOccupation numbers to hide in Qualtrics:", occupation_numbers_string, "\n")
+```
+
+```{r save_outputs}
+# Save the occupation numbers string
+writeLines(occupation_numbers_string, 
+           "FULL SURVEY data/Remaining occupation list/qualtrics_hidden_occupation_numbers.txt")
+
+# Save the completed and not completed dataframes (optional)
+write_csv(completed_df, 
+          "FULL SURVEY data/Remaining occupation list/completed_tasks.csv")
+
+write_csv(not_completed_df, 
+          "FULL SURVEY data/Remaining occupation list/not_completed_tasks.csv")
+
+cat("\nFiles saved successfully!\n")
+cat("- Occupation numbers saved to: FULL SURVEY data/Remaining occupation list/qualtrics_hidden_occupation_numbers.txt\n")
+cat("- Completed tasks saved to: FULL SURVEY data/Remaining occupation list/completed_tasks.csv\n")
+cat("- Not completed tasks saved to: FULL SURVEY data/Remaining occupation list/not_completed_tasks.csv\n")
+```
+
+```{r save_remaining_task_titles}
+# Create a CSV with just the remaining task titles
+# First, identify columns that might contain task titles/descriptions
+title_cols <- names(not_completed_df)[grep("title|description|name|task.*desc", 
+                                           names(not_completed_df), 
+                                           ignore.case = TRUE)]
+
+if(length(title_cols) > 0) {
+  # Use the first matching column
+  title_col <- title_cols[1]
+  
+  # Extract unique task titles from not completed tasks
+  remaining_task_titles <- not_completed_df %>%
+    select(all_of(title_col)) %>%
+    distinct() %>%
+    rename(task_title = !!title_col)
+  
+} else {
+  # If no title column found, try to use task_id as fallback
+  cat("\nWarning: No task title/description column found. Using task_id instead.\n")
+  cat("Available columns in not_completed_df:\n")
+  print(names(not_completed_df))
+  
+  remaining_task_titles <- not_completed_df %>%
+    select(task_id) %>%
+    distinct() %>%
+    rename(task_title = task_id)
+}
+
+# Save the remaining task titles
+write_csv(remaining_task_titles, 
+          "FULL SURVEY data/Remaining occupation list/remaining_occupaiton_list.csv")
+
+cat("\n- Remaining task titles saved to: FULL SURVEY data/Remaining occupation list/remaining_occupaiton_list.csv\n")
+cat("  Total remaining tasks:", nrow(remaining_task_titles), "\n")
+
+# Save the remaining task IDs
+remaining_task_ids <- not_completed_df %>%
+  select(task_id) %>%
+  distinct() %>%
+  arrange(task_id)
+
+write_csv(remaining_task_ids, 
+          "FULL SURVEY data/Remaining occupation list/remaining_task_instances.csv")
+
+cat("- Remaining task IDs saved to: FULL SURVEY data/Remaining occupation list/remaining_task_instances.csv\n")
+cat("  Total remaining task IDs:", nrow(remaining_task_ids), "\n")
+```
+

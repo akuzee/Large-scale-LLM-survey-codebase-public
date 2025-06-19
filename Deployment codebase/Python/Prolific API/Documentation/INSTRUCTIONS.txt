@@ -1,0 +1,153 @@
+**Goal:** To use the Prolific API to create a survey, launch a study using that survey, see who completed it, and approve a participant's submission, all using the provided Python scripts.
+
+**Before You Begin: Prerequisites**
+
+1.  **Install Python:** If you don't have Python installed, download and install it from the official website: [python.org](https://www.python.org/). During installation, make sure to check the box that says "Add Python to PATH" (or similar) to make it easier to run from your terminal.
+2.  **Install `requests` Library:** This library lets Python send HTTP requests (like talking to the Prolific API).
+    *   Open your **Terminal** (on Mac/Linux) or **Command Prompt/PowerShell** (on Windows).
+    *   Type the following command and press Enter:
+        ```bash
+        pip install requests
+        ```
+        *(If you have multiple Python versions, you might need `pip3 install requests` or `python -m pip install requests`).*
+
+**Step 1: Set Your Prolific API Token**
+
+*   **Why:** The scripts need your unique API key to authenticate with Prolific.
+*   **How:**
+    1.  Find your Prolific API Token on the Prolific website (go to your Account -> Settings -> API tokens, or use the link mentioned in the documentation: [https://app.prolific.com/researcher/tokens/](https://app.prolific.com/researcher/tokens/)). Generate one if needed.
+    2.  **Copy** your API token. It will be a long string of characters.
+    3.  Open the file named `config.py` in a text editor.
+    4.  Find this line:
+        ```python
+        API_TOKEN = "YOUR_SECRET_API_TOKEN_HERE"
+        ```
+    5.  **Carefully replace** the text `"YOUR_SECRET_API_TOKEN_HERE"` with your **actual** API token, keeping the quotation marks around it.
+    6.  **Save** the `config.py` file.
+*   **Security Note:** Treat this token like a password! Don't share it or save it in public places.
+
+**Step 2: Create the Survey**
+
+*   **Why:** This script defines your survey questions and tells Prolific to create it.
+*   **How:**
+    1.  Open your Terminal / Command Prompt.
+    2.  Navigate to the directory where you saved the Python files (`config.py`, `create_survey.py`, etc.). Use the `cd` command (e.g., `cd /path/to/your/scripts`).
+    3.  Run the script by typing the following and pressing Enter:
+        ```bash
+        python create_survey.py
+        ```
+*   **Expected Output:**
+    *   The script will first print that it's fetching your Researcher ID.
+    *   Then, it will print that it's attempting to create the survey.
+    *   If successful, it will print:
+        ```
+        Survey created successfully!
+        Survey ID: <some_long_id_string>
+        Survey Title: Example API Survey - Fruit Preferences
+        ```
+    *   **Crucially:** Make a note of the `Survey ID` printed out. You'll need it in the next step. Copy and paste it somewhere safe temporarily.
+    *   If it fails, it will print error messages (e.g., if your API token was wrong or there was a network issue).
+
+**Step 3: Create and Publish the Study (Linking the Survey)**
+
+*   **Why:** This script creates a Prolific study (setting reward, number of participants, etc.) and tells it to use the survey you just created. It then publishes the study so participants can see it.
+*   **How:**
+    1.  Make sure you have the `Survey ID` from Step 2.
+    2.  In your Terminal / Command Prompt (still in the same directory), run the script, **adding the Survey ID** at the end:
+        ```bash
+        python create_study_with_survey.py <PASTE_YOUR_SURVEY_ID_HERE>
+        ```
+        (Replace `<PASTE_YOUR_SURVEY_ID_HERE>` with the actual ID you copied).
+*   **Expected Output:**
+    *   The script will print that it's using the Survey ID you provided.
+    *   It will print that it's creating a *draft* study first.
+    *   If the draft is successful, it will print the `Draft Study ID`.
+    *   Then, it will attempt to *publish* the draft study.
+    *   If publishing is successful (or starts successfully - it might take a moment on Prolific's side), it will print something like:
+        ```
+        Study publishing initiated successfully!
+        Study ID: <another_long_id_string>
+        Current Status: ACTIVE
+        ```
+        *(The status might initially be `PUBLISHING`)*.
+    *   **Crucially:** Make a note of the `Study ID` printed out. You'll need it for the next steps.
+    *   If it fails (e.g., you don't have enough funds in your Prolific account, or the survey ID was wrong), it will print error messages.
+
+**Step 4: List the Submissions (See Who Completed the Study)**
+
+*   **Why:** After participants complete your study, you need to see their submissions to get the `Submission ID` required for approval.
+*   **How:**
+    1.  Wait for some participants to complete your study on Prolific.
+    2.  Make sure you have the `Study ID` from Step 3.
+    3.  In your Terminal / Command Prompt, run the script, adding the Study ID:
+        ```bash
+        python list_submissions.py <PASTE_YOUR_STUDY_ID_HERE>
+        ```
+        (Replace `<PASTE_YOUR_STUDY_ID_HERE>` with the actual ID).
+*   **Expected Output:**
+    *   The script will print that it's retrieving submissions for the study.
+    *   If successful and submissions exist, it will print a list like this:
+        ```
+        --- Submissions Found ---
+          Submission 1:
+            ID:           <submission_id_1>
+            Participant:  <participant_id_1>
+            Status:       AWAITING REVIEW
+            Started At:   ...
+            Completed At: ...
+            Study Code:   API_COMPLETED
+            ----------
+          Submission 2:
+            ID:           <submission_id_2>
+            Participant:  <participant_id_2>
+            Status:       AWAITING REVIEW
+            Started At:   ...
+            Completed At: ...
+            Study Code:   API_COMPLETED
+            ----------
+        ```
+    *   **Crucially:** Identify the `ID` (the Submission ID) of the submission you want to approve. Usually, you'll look for ones with `Status: AWAITING REVIEW`. Copy the specific Submission ID you want to approve.
+    *   If no one has completed the study yet, it will say "No submissions found...".
+    *   If it fails, it will print error messages.
+
+**Step 5: Approve a Submission**
+
+*   **Why:** This script sends the command to Prolific to approve a specific participant's submission, marking it as complete and triggering their payment.
+*   **How:**
+    1.  Make sure you have the specific `Submission ID` you want to approve from Step 4.
+    2.  In your Terminal / Command Prompt, run the script, adding the Submission ID:
+        ```bash
+        python approve_submission.py <PASTE_SUBMISSION_ID_TO_APPROVE_HERE>
+        ```
+        (Replace `<PASTE_SUBMISSION_ID_TO_APPROVE_HERE>` with the actual ID).
+*   **Expected Output:**
+    *   The script will print that it's attempting to 'APPROVE' the submission.
+    *   If successful, it will print:
+        ```
+        Submission transition successful!
+        Submission ID: <the_submission_id_you_provided>
+        New Status: APPROVED
+        ```
+    *   If it fails (e.g., the submission wasn't awaiting review, the ID was wrong), it will print error messages.
+
+**Summary of Flow:**
+
+1.  Edit `config.py` with your API token.
+2.  Run `python create_survey.py` -> Get **Survey ID**.
+3.  Run `python create_study_with_survey.py <Survey ID>` -> Get **Study ID**.
+4.  (Wait for participants) Run `python list_submissions.py <Study ID>` -> Get **Submission ID**(s).
+5.  Run `python approve_submission.py <Submission ID>` -> Approve the submission.
+
+**Optional Modifications:**
+
+*   **Survey Content:** Edit the `survey_structure` dictionary inside `create_survey.py` to change questions and answers.
+*   **Study Settings:** Edit the `study_config` dictionary inside `create_study_with_survey.py` to change the reward, number of places, description, filters, completion codes, etc.
+*   **Rejecting:** To reject a submission instead of approving, open `approve_submission.py`, change `ACTION_TO_TAKE = "APPROVE"` to `ACTION_TO_TAKE = "REJECT"`, and fill in the `REJECTION_MESSAGE` (must be >= 100 chars) and `REJECTION_CATEGORY` variables appropriately before running the script with the submission ID.
+
+**Troubleshooting:**
+
+*   Read the output in your terminal carefully. The scripts print status messages and errors.
+*   The `prolific_utils.py` script tries to print detailed error information from the API if something goes wrong. Look for "API Request Failed" or "API Error Details" in the output.
+*   Double-check that you copied and pasted the correct IDs (Survey, Study, Submission) when running the scripts.
+*   Ensure your API token in `config.py` is correct and hasn't been revoked.
+*   Make sure you have enough funds in your Prolific account to publish the study (Step 3).

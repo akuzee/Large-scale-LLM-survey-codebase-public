@@ -1,0 +1,20 @@
+# R specific
+.Rhistory
+.RData
+.Ruserdata
+**/*.Rproj.user/
+
+# Python specific
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Credentials
+*.json
+config.py

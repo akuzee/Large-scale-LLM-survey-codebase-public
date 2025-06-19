@@ -1,0 +1,910 @@
+---
+title: "R Notebook"
+output: NULL
+editor_options: 
+  chunk_output_type: inline
+---
+
+# Inputs:
+
+#data
+
+# Outputs:
+# all_combined_data_12Mar25AK.csv
+# valid_combined_data_12Mar25AK.csv
+# rejection_freq_table_12Mar25AK.csv
+# rejected_participants_12Mar25AK.csv
+# all_participants_rejection_flags_15May25AK.csv
+
+# Load libraries
+```{r}
+library(data.table)
+library(dplyr)
+library(purrr)
+library(tidyr)
+library(here)
+```
+
+# Load data
+```{r}
+# Load cleaned data
+data <- read.csv(here('FULL SURVEY data/Cleaned survey data/full_survey_cleaned_data.csv'))
+ 
+#DELETE
+data$prolific_id <- as.character(data$prolific_id)
+
+                
+# Load demo data from prolific
+# demo_data <- read.csv(here(FULL SURVEY/Code and data/FULL SURVEY data/Prolific demo data/XYZ.csv'))
+```
+
+
+## **BEGIN REMOVALS** ##
+
+# Remove people who expressed issues directly
+```{r}
+#explicit_issue_prolific_ids <- data %>%
+#  filter(prolific_id %in% c("")
+#  ) %>%
+#  group_by(prolific_id) %>%
+#  slice_head(n=1) %>%
+#  select(prolific_id, Wave) %>%
+#  mutate(explicit_issue = "explicit issue")
+```
+
+# Only include people who didn't finish the survey
+```{r}
+incomplete_survey <- data %>% filter(!is.na(demo_total_income) & demo_total_income != "")
+
+#nrow(incomplete_survey)
+```
+
+# Remove failed attention checkers and record them - could downsize based on cleaning in previous 
+```{r}
+prolific_ids_failed_attn_checks <- data %>%
+  # converting attn checks to "1" if false, "0" otherwise
+    mutate(attncheck1_value = ifelse(attncheck1 != "", 1, 0),
+         attncheck2_value = ifelse(attncheck2 != "Somewhat agree", 1, 0),
+         attncheck3_value = ifelse(attncheck3 != "Somewhat disagree" & attncheck3 != "Strongly disagree", 1, 0)) %>%
+  #summing each participants' failed attention checks
+  mutate(failed_attn_checks = attncheck1_value + attncheck2_value + attncheck3_value,
+         no_compensation = ifelse(failed_attn_checks>1, 1, 0)
+           ) %>%
+  filter(no_compensation == 1) %>%
+  group_by(prolific_id) %>%
+  slice_head(n=1) %>%
+  select(prolific_id, Wave, failed_attn_checks)
+
+#nrow(prolific_ids_failed_attn_checks)
+```
+
+# of people with 1 failed attention check
+```{r}
+prolific_ids_failed_attn_checks_only_1 <- data %>%
+  # converting attn checks to "1" if false, "0" otherwise
+    mutate(attncheck1_value = ifelse(attncheck1 != "", 1, 0),
+         attncheck2_value = ifelse(attncheck2 != "Somewhat agree", 1, 0),
+         attncheck3_value = ifelse(attncheck3 != "Somewhat disagree" & attncheck3 != "Strongly disagree", 1, 0)) %>%
+  #summing each participants' failed attention checks
+  mutate(failed_attn_checks = attncheck1_value + attncheck2_value + attncheck3_value,
+         no_compensation = ifelse(failed_attn_checks>1, 1, 0)
+           ) %>%
+  filter(failed_attn_checks == 1) %>%
+  group_by(prolific_id) %>%
+  slice_head(n=1) %>%
+  select(prolific_id, Wave, failed_attn_checks)
+
+#nrow(prolific_ids_failed_attn_checks_only_1)
+```
+
+# Remove people who did not give consent - save for later
+```{r}
+no_consent_given <- data %>%
+  filter(!grepl("1", informed_consent)) %>%
+  group_by(prolific_id) %>%
+  slice_head(n=1) %>%
+  select(prolific_id, Wave, informed_consent)
+
+#nrow(no_consent_given)
+```
+
+# Remove people with insufficient work experience
+```{r}
+insufficient_work_experience <- data %>%
+  filter(grepl("5 months", work_experience) | grepl("None", work_experience)) %>%
+  group_by(prolific_id) %>%
+  slice_head(n=1) %>%
+  select(prolific_id, Wave, work_experience)
+
+#nrow(insufficient_work_experience)
+```
+
+# Remove people who did not understand any tasks
+```{r}
+did_not_understand_task <- data %>%
+  filter(!grepl("1", task_understanding) & !grepl("2", task_understanding) ) %>%
+  group_by(prolific_id) %>%
+  slice_head(n=1) %>%
+  select(prolific_id, Wave,task_understanding)
+```
+
+# Remove rushers
+```{r}
+# Identify people who clicked through responses too quickly
+minimum_1_clicking_time <- data %>%
+  group_by(prolific_id) %>%
+  slice_min(order_by = response_page_duration, n = 1) %>%
+  summarize(mean_min_1_clicking_time = mean(response_page_duration),
+          Wave = Wave)
+
+minimum_3_clicking_time <- data %>%
+  group_by(prolific_id) %>%
+  slice_min(order_by = response_page_duration, n = 3) %>%
+  summarize(mean_min_3_clicking_time = mean(response_page_duration),
+          Wave = Wave) %>%
+  select(prolific_id, Wave, mean_min_3_clicking_time) %>%
+  group_by(prolific_id, Wave ) %>%
+  slice_head(n=1)
+
+cut_minimum_1_clicking_time <- filter(minimum_1_clicking_time, mean_min_1_clicking_time <= 3.5)
+print(nrow(cut_minimum_1_clicking_time))
+
+cut_minimum_3_clicking_time <- filter(minimum_3_clicking_time, mean_min_3_clicking_time <= 4)
+print(nrow(cut_minimum_3_clicking_time))
+
+# Identify people who finished responding too quickly
+minimum_1_last_click <- data %>%
+  group_by(prolific_id) %>%
+  slice_min(order_by = resp_last_click, n = 1) %>%
+  reframe(mean_minimum_1_last_click = mean(as.numeric(resp_last_click)),
+          Wave = Wave)
+
+minimum_3_last_click <- data %>%
+  group_by(prolific_id) %>%
+  slice_min(order_by = resp_last_click, n = 3) %>%
+  reframe(mean_minimum_3_last_click = mean(as.numeric(resp_last_click)),
+          Wave = Wave) %>%
+  select(prolific_id, Wave, mean_minimum_3_last_click) %>%
+  group_by(prolific_id, Wave) %>%
+  slice_head(n=1) 
+
+cut_minimum_1_last_click <- filter(minimum_1_last_click, mean_minimum_1_last_click <= 12)
+#print(nrow(cut_minimum_1_last_click))
+
+cut_minimum_3_last_click <- filter(minimum_3_last_click, mean_minimum_3_last_click <= 12)
+#print(nrow(cut_minimum__last_click))
+
+# Merge to show everyone cut for timing reasons
+rushers_ids <- full_join(cut_minimum_3_clicking_time, cut_minimum_3_last_click, by = c("prolific_id", "Wave"))
+#nrow(rushers_ids) 
+```
+
+# Remove repetitive responses
+```{r}
+# Function to find repetitive responses
+check_same_responses <- function(data) {
+  # Get unique prolific IDs
+  unique_ids <- unique(data$prolific_id)
+  
+  # Individual columns to check
+  individual_columns <- c(
+    "resp_understandable", 
+    "resp_relevance",
+    "resp_accuracy", 
+    "resp_tone",
+    "resp_employee_quality" 
+    #"resp_why_not_accept",
+    #"response_manager_accept"
+  )
+  
+  # Paired columns that need to be checked together
+  paired_columns <- list(
+    #complete_time = c("response_time_to_make_complete_and_polished_hours", 
+                     # "response_time_to_make_complete_and_polished_minutes"),
+    employee_time = c("response_typical_employee_time_hours", 
+                      "response_typical_employee_time_minutes")
+  )
+  
+  # Create empty data frame to store results
+  results <- data.frame(
+    prolific_id = character(),
+    Wave = character(),
+    question = character(),
+    same_answer = logical(),
+    answer_value = character(),
+    response_count = numeric(),
+    stringsAsFactors = FALSE
+  )
+  
+  # For each participant, check each question
+  for (id in unique_ids) {
+    # Get all responses from this participant
+    participant_data <- data[data$prolific_id == id, ]
+    
+    # Get Wave(s)
+    Waves <- unique(participant_data$Wave)
+    
+    # Only process if participant has exactly 5 responses
+    if (nrow(participant_data) != 5) {
+      next
+    }
+    
+    # Get the Wave (take the first one if multiple exist)
+    Wave_value <- ifelse(length(Waves) > 0, as.character(Waves[1]), NA)
+    
+    # Check individual columns
+    for (col in individual_columns) {
+      # Get all values for this question from this participant
+      values <- participant_data[[col]]
+      
+      # Remove NA values and empty strings
+      values <- values[!is.na(values) & values != ""]
+      
+      # If all values are the same and there are exactly 5 responses
+      if (length(values) == 5 && length(unique(values)) == 1) {
+        results <- rbind(results, data.frame(
+          prolific_id = id,
+          Wave = Wave_value,
+          question = col,
+          same_answer = TRUE,
+          answer_value = as.character(values[1]),
+          response_count = length(values),
+          stringsAsFactors = FALSE
+        ))
+      }
+    }
+    
+    # Check paired columns
+    for (pair_name in names(paired_columns)) {
+      col1 <- paired_columns[[pair_name]][1]
+      col2 <- paired_columns[[pair_name]][2]
+      
+      # Get values for both columns
+      values1 <- participant_data[[col1]]
+      values2 <- participant_data[[col2]]
+      
+      # Check if both columns have the same value across all 5 responses
+      if (length(values1) == 5 && length(values2) == 5 &&
+          length(unique(values1)) == 1 && length(unique(values2)) == 1 &&
+          values1[1] != "" && values2[1] != "") {
+        
+        results <- rbind(results, data.frame(
+          prolific_id = id,
+          Wave = Wave_value,
+          question = paste0(pair_name, " (", col1, " & ", col2, ")"),
+          same_answer = TRUE,
+          answer_value = paste0(values1[1], "h ", values2[1], "m"),
+          response_count = 5,
+          stringsAsFactors = FALSE
+        ))
+      }
+    }
+  }
+  
+  return(results)
+}
+
+repetitive_answers <- check_same_responses(data) %>%
+  select(prolific_id, Wave) %>%
+  group_by(prolific_id, Wave) %>%
+  slice_head(n=1) %>%
+  mutate(repetitive_responses = 1)
+
+#people with majority 0 variation
+
+identify_majority_repeaters <- function(data) {
+  # Get unique prolific IDs
+  unique_ids <- unique(data$prolific_id)
+  
+  # All columns to check
+  all_columns <- c(
+    "resp_understandable", 
+    "resp_relevance",
+    "resp_accuracy", 
+    "resp_tone",
+    "response_typical_employee_time_hours",
+    "response_typical_employee_time_minutes",
+    "response_manager_accept"
+    #"resp_employee_quality", 
+    #"resp_why_not_accept",
+    #"response_time_to_make_complete_and_polished_hours",
+    #"response_time_to_make_complete_and_polished_minutes",
+  )
+  
+  # Calculate majority threshold
+  majority_threshold <- ceiling(length(all_columns) / 2)
+  
+  # Create data frame to store results
+  majority_repeaters <- data.frame(
+    prolific_id = character(),
+    Wave = character(),
+    repeated_questions = numeric(),
+    total_questions = numeric(),
+    repeat_percentage = numeric(),
+    response_count = numeric(),
+    stringsAsFactors = FALSE
+  )
+  
+  for (id in unique_ids) {
+    # Get all responses from this participant
+    participant_data <- data[data$prolific_id == id, ]
+    
+    # Get Wave value (take first one if multiple)
+    Waves <- unique(participant_data$Wave)
+    Wave_value <- ifelse(length(Waves) > 0, as.character(Waves[1]), NA)
+    
+    # Skip if not exactly 5 responses
+    if (nrow(participant_data) != 5) {
+      next
+    }
+    
+    # Track questions answered the same way every time
+    questions_repeated <- 0
+    question_details <- list()
+    
+    # Check each question
+    for (col in all_columns) {
+      # Get all values for this question
+      values <- participant_data[[col]]
+      
+      # Skip if any values are NA or empty
+      if (any(is.na(values)) || any(values == "")) {
+        next
+      }
+      
+      # Check if all values are identical
+      if (length(unique(values)) == 1) {
+        questions_repeated <- questions_repeated + 1
+        question_details[[col]] <- values[1]
+      }
+    }
+    
+    # Calculate percentage of questions with identical answers
+    total_valid_questions <- length(all_columns)
+    repeat_percentage <- (questions_repeated / total_valid_questions) * 100
+    
+    # If MORE THAN HALF of questions were answered identically
+    if (questions_repeated > majority_threshold) {
+      majority_repeaters <- rbind(majority_repeaters, data.frame(
+        prolific_id = id,
+        Wave = Wave_value,
+        repeated_questions = questions_repeated,
+        total_questions = total_valid_questions,
+        repeat_percentage = round(repeat_percentage, 1),
+        response_count = nrow(participant_data),
+        stringsAsFactors = FALSE
+      ))
+      
+      # Store repeated answers
+      attr(majority_repeaters, paste0("repeated_", id)) <- question_details
+    }
+  }
+  
+  # Sort by percentage (highest first)
+  if (nrow(majority_repeaters) > 0) {
+    majority_repeaters <- majority_repeaters[order(-majority_repeaters$repeat_percentage), ]
+  }
+  
+  # Add print_details method
+  attr(majority_repeaters, "print_details") <- function() {
+    if (nrow(majority_repeaters) == 0) {
+      cat("No participants answered a majority of questions identically.\n")
+      return(invisible())
+    }
+    
+    cat("Participants repeating majority of answers across all 5 responses:\n")
+    cat("========================================================================\n\n")
+    
+    for (i in 1:nrow(majority_repeaters)) {
+      id <- majority_repeaters$prolific_id[i]
+      cat("Participant ID:", id, "\n")
+      cat("Wave:", majority_repeaters$Wave[i], "\n")
+      cat("Questions repeated:", majority_repeaters$repeated_questions[i], 
+          "out of", majority_repeaters$total_questions[i], 
+          "(", majority_repeaters$repeat_percentage[i], "%)\n\n")
+      
+      cat("Repeated answers:\n")
+      repeated_answers <- attr(majority_repeaters, paste0("repeated_", id))
+      for (q in names(repeated_answers)) {
+        cat("  ", q, ": ", repeated_answers[[q]], "\n", sep = "")
+      }
+      cat("\n-------------------------------------------------------------------\n\n")
+    }
+  }
+  
+  return(majority_repeaters)
+}
+
+majority_repetitive_answers <- identify_majority_repeaters(data) %>%
+  select(prolific_id, Wave, repeated_questions, repeat_percentage) %>%
+  group_by(prolific_id, Wave) %>%
+  slice_head(n=1) %>%
+  filter(repeated_questions > 10)
+
+#nrow(majority_repetitive_answers)
+```
+
+# Remove clearly contradictory responses
+```{r}
+#look for high ratings but nonacceptance - can be rated low for a single mistake
+#manager_unacceptance_incoherence <- data %>%
+#  filter(grepl("Very easy", resp_understandable)) %>%
+#  filter(grepl("Very relevant", resp_relevance)) %>%
+#  filter(grepl("Very accurate", resp_accuracy)) %>%
+#  filter(grepl("Very appropriate", resp_tone)) %>%
+#  filter(grepl("Not useful", response_manager_accept)) %>% 
+#  select(prolific_id, Wave) %>%
+#  group_by(prolific_id, Wave) %>%
+#  slice_head(n=1) %>%
+#  mutate(manager_unacceptance_incoherence = 1)
+
+
+#look for high ratings but low performer - can be rated low for a single mistake
+#poor_performer_incoherence <- data %>%
+#  filter(grepl("Very easy", resp_understandable)) %>%
+#  filter(grepl("Very relevant", resp_relevance)) %>%
+#  filter(grepl("Very accurate", resp_accuracy)) %>%
+#  filter(grepl("Very appropriate", resp_tone)) %>%
+#  filter(grepl("10th", resp_employee_quality))  %>% 
+#  select(prolific_id, Wave) %>%
+#  group_by(prolific_id, Wave) %>%
+#  slice_head(n=1) %>%
+#  mutate(poor_performer_incoherence = 1)
+  
+#low ratings across the board, but acceptable to a manager
+manager_acceptance_incoherence <- data %>% 
+  filter(grepl("Not at all easy",resp_understandable)) %>%
+  filter(grepl("Not at all relevant", resp_relevance)) %>%
+  filter(grepl("Not at all accurate", resp_accuracy)) %>%
+  filter(grepl("Not at all appropriate", resp_tone)) %>%
+  filter(grepl("no edits to be of superior quality", response_manager_accept) )%>% 
+  select(prolific_id, Wave) %>%
+  group_by(prolific_id, Wave) %>%
+  slice_head(n=1) %>%
+  mutate(manager_acceptance_incoherence = 1)
+
+#low ratings across the board, but a top performer
+manager_acceptance_incoherence <- data %>% 
+  filter(grepl("Not at all easy", resp_understandable))  %>%
+  filter(grepl("Not at all relevant", resp_relevance) ) %>%
+  filter(grepl("Not at all accurate", resp_accuracy) ) %>%
+  filter(grepl("Not at all appropriate", resp_tone) ) %>%
+  filter(grepl("90th", resp_employee_quality) ) %>% 
+  select(prolific_id, Wave) %>%
+  group_by(prolific_id, Wave) %>%
+  slice_head(n=1) %>%
+  mutate(manager_acceptance_incoherence = 1)
+
+
+reason_reject_coherency <- function(data, reject_reason, original_rating_for_reason) {
+  # Getting responses which rejected - making sure to use the same dataset throughout
+  rejected <- data %>% 
+    # First filter to people who rejected
+    filter(!grepl("Useful as is", response_manager_accept)) %>% 
+    # Then filter by the reason they rejected
+    filter(grepl(reject_reason, resp_why_not_accept))
+  # identify people who rated that reason highly
+    incoherent_rejection <- rejected %>%
+    filter(!grepl("Not very", .data[[original_rating_for_reason]]) & 
+           !grepl("Not at all", .data[[original_rating_for_reason]]) &
+           !grepl("Somewhat", .data[[original_rating_for_reason]]) & 
+           !grepl("Moderately", .data[[original_rating_for_reason]])
+           )
+  
+  return(incoherent_rejection)
+}
+
+understanding_coherency_check <- reason_reject_coherency(data, "confusing", "resp_understandable")
+relevance_coherency_check <- reason_reject_coherency(data, "not relevant", "resp_relevance")
+accuracy_coherency_check <- reason_reject_coherency(data, "errors", "resp_accuracy")
+tone_coherency_check <- reason_reject_coherency(data, "tone", "resp_tone")
+
+# Combining this kind of incoherencee
+incoherent_rejection <- bind_rows(understanding_coherency_check, relevance_coherency_check, accuracy_coherency_check, tone_coherency_check) %>% 
+  select(prolific_id, Wave) %>%
+  group_by(prolific_id, Wave) %>%
+  slice_head(n=1) %>%
+  mutate(incoherent_rejection = "incoherent rejection")
+
+#nrow(incoherent_rejection)
+```
+
+# FOR LATER - Pooled average ratings for each characteristic marked as a reason to reject a model response
+```{r}/
+
+# find number of people who rated the model as being rejected for each characteristic 
+reason_reject_coherency <- function(data, reject_reason, original_rating_for_reason) {
+  # Getting responses which rejected - making sure to use the same dataset throughout
+  rejected <- data %>% 
+    # First filter to narrow down the dataset
+    filter(!grepl("Useful as is", response_manager_accept)) %>% 
+    # Then use the same dataset for the second filter
+    filter(grepl(reject_reason, resp_why_not_accept))
+  
+  # Table of response rates for corresponding option
+  # Make sure to use the filtered dataset 'rejected'
+  table <- as.data.frame(table(rejected[[original_rating_for_reason]]))
+  
+  # Calculate percent
+  table$Percent <- paste0(round((table$Freq / sum(table$Freq) * 100), 1), "%")
+  
+  # Rename columns
+  names(table) <- c("Rating", "Count", "Percent")
+  
+  # Extract prefix from the Rating values for sorting
+  # Create a new column for sorting purposes
+  table$Sort_Order <- sapply(as.character(table$Rating), function(x) {
+    if(grepl("^Not at all", x)) return(1)
+    else if(grepl("^Not very", x)) return(2)
+    else if(grepl("^Moderately", x)) return(3)
+    else if(grepl("^Somewhat", x)) return(4)
+    else if(grepl("^Very", x)) return(5)
+    else return(6)  # For any other cases
+  })
+  
+  # Sort the table by the sort order
+  table <- table[order(table$Sort_Order), ]
+  
+  # Remove the sorting column from the final output
+  table$Sort_Order <- NULL
+  
+  # Return table
+  return(table)
+}
+
+```
+# Time incoherence 
+```{r}
+filter_extreme_time_estimates <- function(data) {
+  # Create a copy of the data
+  filtered_data <- data
+  
+  # Convert to numeric and handle NAs for all time variables
+  time_columns <- c(
+    "response_typical_employee_time_hours", 
+    "response_typical_employee_time_minutes",
+    "response_time_to_make_complete_and_polished_hours", 
+    "response_time_to_make_complete_and_polished_minutes",
+    "task_time_complete_hours",
+    "task_time_complete_minutes"
+  )
+  
+  # Convert all columns to numeric
+  for (col in time_columns) {
+    if (col %in% names(filtered_data)) {
+      filtered_data[[col]] <- as.numeric(as.character(filtered_data[[col]]))
+      filtered_data[[col]][is.na(filtered_data[[col]])] <- 0
+    } else {
+      warning(paste("Column", col, "not found in dataset"))
+      filtered_data[[col]] <- 0
+    }
+  }
+  
+  # Calculate total hours for all three time measures
+  filtered_data$total_employee_time <- filtered_data$response_typical_employee_time_hours + 
+                                      (filtered_data$response_typical_employee_time_minutes / 60)
+  
+  filtered_data$total_complete_time <- filtered_data$response_time_to_make_complete_and_polished_hours + 
+                                      (filtered_data$response_time_to_make_complete_and_polished_minutes / 60)
+  
+  filtered_data$total_task_time <- filtered_data$task_time_complete_hours + 
+                                  (filtered_data$task_time_complete_minutes / 60)
+  
+  # Filter where any time estimate exceeds two weeks (336 hours)
+  extreme_estimates <- filtered_data[
+    filtered_data$total_employee_time > 336 | 
+    filtered_data$total_complete_time > 336 |
+    filtered_data$total_task_time > 336, 
+  ]
+  
+  # Select only relevant columns for the output
+  cols_to_keep <- c("prolific_id", "Wave", 
+                   time_columns,
+                   "total_employee_time", "total_complete_time", "total_task_time")
+  
+  # Return the filtered dataset with only relevant columns
+  return(extreme_estimates %>% select(any_of(cols_to_keep)))
+}
+
+extreme_time_responses <- filter_extreme_time_estimates(data)
+
+
+identify_unrealistically_short_times <- function(data) {
+  # Define time variable pairs (hours and minutes)
+  time_pairs <- list(
+    c("response_typical_employee_time_hours", "response_typical_employee_time_minutes"),
+    c("response_time_to_make_complete_and_polished_hours", "response_time_to_make_complete_and_polished_minutes"),
+    c("task_time_complete_hours", "task_time_complete_minutes")
+  )
+  
+  # Create a copy of the data
+  filtered_data <- data
+  
+  # Convert all time columns to numeric
+  for (pair in time_pairs) {
+    hours_col <- pair[1]
+    minutes_col <- pair[2]
+    
+    if (hours_col %in% names(filtered_data)) {
+      filtered_data[[hours_col]] <- as.numeric(as.character(filtered_data[[hours_col]]))
+    }
+    
+    if (minutes_col %in% names(filtered_data)) {
+      filtered_data[[minutes_col]] <- as.numeric(as.character(filtered_data[[minutes_col]]))
+    }
+  }
+  
+  # Create conditions for unrealistically short times
+  conditions <- rep(FALSE, nrow(filtered_data))
+  
+  for (pair in time_pairs) {
+    hours_col <- pair[1]
+    minutes_col <- pair[2]
+    
+    if (hours_col %in% names(filtered_data) && minutes_col %in% names(filtered_data)) {
+      # Check for 0 hours AND less than 2 minutes
+      condition <- filtered_data[[hours_col]] == 0 & 
+                  filtered_data[[minutes_col]] < 2 & 
+                  !is.na(filtered_data[[hours_col]]) & 
+                  !is.na(filtered_data[[minutes_col]])
+      
+      conditions <- conditions | condition
+    }
+  }
+  
+  # Filter the data based on combined conditions
+  short_time_entries <- filtered_data[conditions, ]
+  
+  # Create column list to include time variables
+  all_time_cols <- unlist(time_pairs)
+  cols_to_select <- c("prolific_id", "Wave", all_time_cols)
+  
+  # Return unique entries with time estimates
+  result <- short_time_entries %>%
+    select(any_of(cols_to_select)) %>%
+    distinct()
+  
+  return(result)
+}
+
+short_time_entries <- identify_unrealistically_short_times(data)  %>%
+  group_by(prolific_id  ) %>%
+  slice_head(n=1) 
+```
+
+# Make dataframe with thrown out participants and the reason why
+```{r}
+# Create list of all dataframes to merge
+dfs_to_merge <- list(
+  prolific_ids_failed_attn_checks %>% select(prolific_id, Wave, failed_attn_checks),
+  insufficient_work_experience,
+  did_not_understand_task,
+  #explicit_issue_prolific_ids,
+  rushers_ids,
+  #unapproved_prolific_ids,
+  extreme_time_responses,
+  short_time_entries,
+  majority_repetitive_answers,
+  #manager_unacceptance_incoherence,
+  #poor_performer_incoherence,
+  manager_acceptance_incoherence,
+  incoherent_rejection
+)
+
+# Handle dataframes that might not have the 'Wave' column
+dfs_to_merge <- lapply(dfs_to_merge, function(df) {
+  if(!"Wave" %in% names(df) && "prolific_id" %in% names(df)) {
+    df$Wave <- NA  # Add Wave column if missing
+  }
+  return(df)
+})
+
+reason_reject <- reduce(dfs_to_merge, full_join, by = c("prolific_id", "Wave"))
+```
+
+# FOR LATER - Frequency table of reasons for rejection by Wave - 
+```/{r}
+create_rejection_frequency_table <- function(data, reason_reject, Wave_frequency) {
+  # Get all possible rejection reasons from the columns in reason_reject
+  rejection_reasons <- names(reason_reject)[!names(reason_reject) %in% c("prolific_id", "Wave")]
+  
+  # Initialize the summary table
+  summary_table <- reason_reject %>%
+    left_join(Wave_frequency %>% select(Wave, n), by = "Wave") %>%
+    group_by(Wave) %>%
+    summarize(
+      rejected_number = n(),
+      Wave_total = first(n)
+    )
+  
+  # Add each rejection reason to the summary
+  for (reason in rejection_reasons) {
+    # Handle different column types and create count and percentage
+    summary_table <- summary_table %>%
+      left_join(
+        reason_reject %>%
+          group_by(Wave) %>%
+          summarize(
+            !!paste0(reason, "_count") := sum(!is.na(get(reason)) & get(reason) != "" & get(reason) != FALSE, na.rm = TRUE)
+          ),
+        by = "Wave"
+      )
+    
+    # Add percentage column
+    summary_table <- summary_table %>%
+      mutate(!!paste0(reason, "_pct") := paste0(
+        round(100 * get(paste0(reason, "_count")) / Wave_total, 2), "%"
+      ))
+  }
+  
+  # Add total rejection percentage
+  summary_table <- summary_table %>%
+    mutate(rejected_pct = paste0(round(100 * rejected_number / Wave_total, 2), "%"))
+  
+  # Reorder columns for better readability
+  col_order <- c("Wave", "Wave_total", "rejected_number", "rejected_pct")
+  
+  for (reason in rejection_reasons) {
+    col_order <- c(col_order, paste0(reason, "_count"), paste0(reason, "_pct"))
+  }
+  
+  summary_table <- summary_table %>%
+    select(any_of(col_order))
+  
+  return(summary_table)
+}
+
+rejection_freq_table <- create_rejection_frequency_table(data, reason_reject, Wave_frequency)
+```
+# Remove rejected participants
+```{r}
+data_valid <- data %>%
+  filter(!prolific_id %in% reason_reject$prolific_id)
+```
+
+# Save final data and reason_reject data
+
+# Create comprehensive dataset with all prolific IDs and rejection flags
+```{r}
+# Get all unique prolific IDs from the original data
+all_prolific_ids <- data %>%
+  select(prolific_id, Wave) %>%
+  group_by(prolific_id) %>%
+  slice_head(n=1) %>%
+  ungroup()
+
+# Create comprehensive rejection flags dataset
+comprehensive_rejection_flags <- all_prolific_ids %>%
+  # Failed 2+ attention checks
+  left_join(
+    prolific_ids_failed_attn_checks %>% 
+      select(prolific_id, failed_attn_checks) %>%
+      mutate(failed_two_plus_attention_checks = TRUE),
+    by = "prolific_id"
+  ) %>%
+  mutate(failed_two_plus_attention_checks = ifelse(is.na(failed_two_plus_attention_checks), FALSE, failed_two_plus_attention_checks)) %>%
+  
+  # Did not give consent
+  left_join(
+    no_consent_given %>% 
+      select(prolific_id) %>%
+      mutate(did_not_give_consent = TRUE),
+    by = "prolific_id"
+  ) %>%
+  mutate(did_not_give_consent = ifelse(is.na(did_not_give_consent), FALSE, did_not_give_consent)) %>%
+  
+  # Did not understand tasks
+  left_join(
+    did_not_understand_task %>% 
+      select(prolific_id) %>%
+      mutate(did_not_understand_tasks = TRUE),
+    by = "prolific_id"
+  ) %>%
+  mutate(did_not_understand_tasks = ifelse(is.na(did_not_understand_tasks), FALSE, did_not_understand_tasks)) %>%
+  
+  # Add occupation confirmation flag by joining with original data
+  left_join(
+    data %>% 
+      select(prolific_id, occupation_confirm) %>%
+      group_by(prolific_id) %>%
+      slice_head(n=1) %>%
+      ungroup(),
+    by = "prolific_id"
+  ) %>%
+  mutate(occupation_not_confirmed = !is.na(occupation_confirm) & occupation_confirm != 1) %>%
+  
+  # Insufficient work experience
+  left_join(
+    insufficient_work_experience %>% 
+      select(prolific_id) %>%
+      mutate(insufficient_work_experience = TRUE),
+    by = "prolific_id"
+  ) %>%
+  mutate(insufficient_work_experience = ifelse(is.na(insufficient_work_experience), FALSE, insufficient_work_experience)) %>%
+  
+  # Add incomplete survey flag (those not in incomplete_survey dataset)
+  mutate(
+    completed_survey = prolific_id %in% incomplete_survey$prolific_id,
+    # Incomplete survey but not due to consent/work experience/task understanding issues
+    incomplete_survey_other_reasons = !completed_survey & 
+                                    !did_not_give_consent & 
+                                    !insufficient_work_experience & 
+                                    !did_not_understand_tasks &
+                                    !occupation_not_confirmed
+  ) %>%
+  
+  # Add four mutually exclusive status columns based on priority hierarchy
+  mutate(
+    # Priority 1: Failed 2+ attention checks → rejected = TRUE, all others FALSE
+    rejected = failed_two_plus_attention_checks,
+    
+    # Priority 2: No consent given → no_consent = TRUE, all others FALSE
+    no_consent = !failed_two_plus_attention_checks & did_not_give_consent,
+    
+    # Priority 3: Screening issues → screened_out = TRUE, all others FALSE
+    screened_out = !failed_two_plus_attention_checks & 
+                   !did_not_give_consent & 
+                   (did_not_understand_tasks | insufficient_work_experience | occupation_not_confirmed),
+    
+    # Priority 4: All good → approved = TRUE, all others FALSE
+    approved = !failed_two_plus_attention_checks & 
+               !did_not_give_consent & 
+               !did_not_understand_tasks & 
+               !insufficient_work_experience & 
+               !occupation_not_confirmed
+  ) %>%
+  
+  # Reorder columns for clarity
+  select(prolific_id, Wave, failed_two_plus_attention_checks, did_not_give_consent, 
+         did_not_understand_tasks, occupation_not_confirmed, insufficient_work_experience, 
+         incomplete_survey_other_reasons, completed_survey,
+         screened_out, rejected, approved, no_consent)
+
+# Display summary of rejection flags and status
+cat("Summary of rejection criteria:\n")
+cat("Failed 2+ attention checks:", sum(comprehensive_rejection_flags$failed_two_plus_attention_checks), "\n")
+cat("Did not give consent:", sum(comprehensive_rejection_flags$did_not_give_consent), "\n")
+cat("Did not understand tasks:", sum(comprehensive_rejection_flags$did_not_understand_tasks), "\n")
+cat("Occupation not confirmed:", sum(comprehensive_rejection_flags$occupation_not_confirmed), "\n")
+cat("Insufficient work experience:", sum(comprehensive_rejection_flags$insufficient_work_experience), "\n")
+cat("Incomplete survey (other reasons):", sum(comprehensive_rejection_flags$incomplete_survey_other_reasons), "\n")
+cat("Completed survey:", sum(comprehensive_rejection_flags$completed_survey), "\n")
+cat("Total participants:", nrow(comprehensive_rejection_flags), "\n\n")
+
+cat("Summary of final status (mutually exclusive):\n")
+cat("Rejected (failed 2+ attention checks):", sum(comprehensive_rejection_flags$rejected), "\n")
+cat("No consent:", sum(comprehensive_rejection_flags$no_consent), "\n")
+cat("Screened out (work exp/tasks/occupation):", sum(comprehensive_rejection_flags$screened_out), "\n")
+cat("Approved:", sum(comprehensive_rejection_flags$approved), "\n")
+cat("Total participants:", nrow(comprehensive_rejection_flags), "\n\n")
+
+# Verification: Check that status columns are mutually exclusive
+cat("Verification - each participant should have exactly one status:\n")
+status_check <- comprehensive_rejection_flags %>%
+  mutate(status_count = screened_out + rejected + approved + no_consent)
+cat("Participants with exactly 1 status:", sum(status_check$status_count == 1), "\n")
+cat("Participants with 0 statuses:", sum(status_check$status_count == 0), "\n")
+cat("Participants with multiple statuses:", sum(status_check$status_count > 1), "\n")
+```
+
+# Save final data and reason_reject data
+```{r}
+# Valid data
+write.csv(data_valid, '/Users/adamkuzee/MIT Dropbox/adam/LLM survey/FULL SURVEY/Code and data/FULL SURVEY data/Final Survey Data/valid_survey_data_15May25AK.csv')
+
+# Comprehensive rejection flags for all participants
+write.csv(comprehensive_rejection_flags, '/Users/adamkuzee/MIT Dropbox/adam/LLM survey/FULL SURVEY/Code and data/FULL SURVEY data/Final Survey Data/all_participants_rejection_flags_15May25AK.csv', row.names = FALSE)
+
+# rejected participants frequency table by Wave
+#write.csv(rejection_freq_table, '/Users/adamkuzee/Dropbox/LLM survey/Benchmark_project/Benchmark_data_analyses/Benchmark_data/Rejection Data/rejection_freq_table_13Mar25AK.csv')
+
+# Rejected participants
+write.csv(reason_reject, '/Users/adamkuzee/MIT Dropbox/adam/LLM survey/FULL SURVEY/Code and data/FULL SURVEY data/Rejection data/rejected_participants_15May25AK.csv')
+```
+
+# Clear environment
+```{r}
+#rm(list=ls())
+```
+
+

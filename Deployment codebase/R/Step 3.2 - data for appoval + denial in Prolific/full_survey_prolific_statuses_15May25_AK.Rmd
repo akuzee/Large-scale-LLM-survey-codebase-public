@@ -1,0 +1,93 @@
+---
+title: "R Notebook"
+output: NULL
+editor_options: 
+  chunk_output_type: inline
+---
+
+# Load libraries
+```{r}
+library(dplyr)
+library(here)
+```
+
+# Load the rejection flags data
+```{r}
+statuses <- read.csv(here('FULL SURVEY data/Final Survey Data/all_participants_rejection_flags_15May25AK.csv'))
+
+# TODO: import prolific status data to compare at the end
+# TODO: perhaps also to filter for "awaiting review" status, for speed
+```
+
+# Create Prolific status review plan
+```{r}
+prolific_status_review <- statuses %>%
+  mutate(
+    # Create single status column from the three boolean columns
+    status = case_when(
+      approved ~ "APPROVED",
+      rejected ~ "REJECTED", 
+      screened_out ~ "SCREENED-OUT",
+      TRUE ~ "ERROR" # This should never happen if logic is correct
+    ),
+    
+    # Create reason column (only for rejected responses)
+    reason = case_when(
+      # For rejected participants who failed 2+ attention checks
+      rejected & failed_two_plus_attention_checks ~ 
+        "Prolific permits the rejection of submissions that fail 2 or more attention checks. You have failed at least 2.",
+      
+      # For rejected participants who didn't fail attention checks but didn't consent or didn't finish
+      rejected & !failed_two_plus_attention_checks ~ 
+        "Prolific permits the rejection of submissions that did not complete the survey. You did not complete the survey.",
+      
+      # No reason needed for approved or screened out
+      TRUE ~ ""
+    ),
+    
+    # Create category column (only for rejected responses)
+    category = case_when(
+      # Failed attention checks
+      rejected & failed_two_plus_attention_checks ~ "FAILED_CHECK",
+      
+      # Other rejection reasons (no consent or incomplete)
+      rejected & !failed_two_plus_attention_checks ~ "OTHER",
+      
+      # No category for approved or screened out
+      TRUE ~ ""
+    )
+  ) %>%
+  
+  # Select final columns for output
+  select(prolific_id, status, reason, category) %>%
+  
+  # Sort by status for easier review
+  arrange(status, prolific_id)
+
+# Display summary
+cat("Summary of Prolific status review plan:\n")
+cat("APPROVED:", sum(prolific_status_review$status == "APPROVED"), "\n")
+cat("REJECTED:", sum(prolific_status_review$status == "REJECTED"), "\n")
+cat("SCREENED-OUT:", sum(prolific_status_review$status == "SCREENED-OUT"), "\n")
+cat("ERROR (should be 0):", sum(prolific_status_review$status == "ERROR"), "\n")
+cat("Total participants:", nrow(prolific_status_review), "\n\n")
+
+# Show breakdown of rejection reasons
+rejected_summary <- prolific_status_review %>%
+  filter(status == "REJECTED") %>%
+  count(category, name = "count")
+
+cat("Breakdown of rejected participants:\n")
+print(rejected_summary)
+```
+
+# Save output
+```{r}
+write.csv(prolific_status_review, 
+          here('FULL SURVEY data/Final Survey Data/prolific_status_review_plan_15May25AK.csv'), 
+          row.names = FALSE)
+
+cat("File saved: prolific_status_review_plan_15May25AK.csv\n")
+```
+
+

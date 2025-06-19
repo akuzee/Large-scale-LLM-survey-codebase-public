@@ -1,0 +1,183 @@
+---
+title: "R Notebook"
+output: NULL
+editor_options: 
+  chunk_output_type: inline
+---
+# Purpose: run all 5 script in one go
+## Eventually, include prolific demo data here
+
+# Inputs: 
+## Raw qualtrics data
+## Prolific demo data
+## Loop and merge table 
+
+
+# Outputs:
+## Re-organized data
+## Data we will keep and data we will reject
+## List of occupations/tasks to hide or continue collection on
+##    Sent to Qualtrics and the cloud database
+## List of prolific ids and their statuses to update
+##    Sent to Prolific
+## Final clean and formatted data
+
+# Libraries
+```{r}
+library(httr)
+library(jsonlite)
+library(readr)
+library(dplyr)
+library(googlesheets4)
+```
+
+# Make file paths 
+```{r}
+# Define the base directory
+r_dir <- '/Users/adamkuzee/MIT Dropbox/adam/LLM survey/FULL SURVEY/Code and data/Codebases/Deployment codebase/R'
+
+python_dir <- '/Users/adamkuzee/MIT Dropbox/adam/LLM survey/FULL SURVEY/Code and data/Codebases/Deployment codebase/Python'
+
+setwd('/Users/adamkuzee/MIT Dropbox/adam/LLM survey/FULL SURVEY/Code and data/Codebases/Deployment codebase')
+```
+
+# Get data from qualtrics and prolific
+```{r}
+# Define files using file.path() for each step
+qualtrics_export_1 <- file.path(python_dir, "Qualtrics API/qualtrics_export.py")
+
+# Get the status of the database
+#database_status_1 <- GET(databaseurl.com)
+# Check if request was successful
+#if (status_code(response) == 200) {
+#  # Read CSV directly from response content
+#  csv_data <- read_csv(content(response, "text"))
+#  print("Data downloaded successfully!")
+#  print(head(csv_data))
+#} else {
+#  stop("Request failed with status code: ", status_code(response))
+#}
+```
+
+# Clean data and find data to re-collect
+```{r}
+# Clean Qualtrics data for analyses
+cleaning_1 <- file.path(r_dir, "Step 1 - Cleaning raw survey data/full_cleaning_qualtrics_data_14May25_AK.Rmd")
+
+# Identify participants to remove and deny in Prolific
+rejection_1 <- file.path(r_dir, "Step 2 - Reject data/full_survey_rejection_15May25_AK.Rmd")
+```
+
+# Find remaining tasks and occupations, and updating the lists in Qualtrics and Prolific
+```{r}
+# Identify the task instances we still need to collect, and which occupations to close entirely
+available_tasks_1 <- file.path(r_dir, "Step 3.1 - List task instances & jobs/full_survey_list_tasks_and_occupation_15May25_AK.Rmd")
+
+# Update available occupations 
+qualtrics_update_embedded_data_1 <- file.path(python_dir, "Qualtrics API/update_embedded_data.py")
+
+# PUT request to update database - NOT DONE
+send_data <- function(data, url, api_key = NULL) {
+ cat("Sending", nrow(data), "rows to API...")
+ 
+ # Prepare headers
+ headers <- list("Content-Type" = "application/json")
+ if (!is.null(api_key)) {
+   headers[["Authorization"]] <- paste("Bearer", api_key)
+ }
+ 
+ # Send PUT request
+ response <- PUT(
+   url,
+   body = toJSON(data, auto_unbox = TRUE),
+   add_headers(.headers = headers),
+   timeout(120)
+ )
+ 
+ # Check result
+ if (status_code(response) %in% c(200, 201, 204)) {
+   cat(" Success!\n")
+   return(TRUE)
+ } else {
+   cat(" Failed! Status:", status_code(response), "\n")
+   print(content(response, "text"))
+   return(FALSE)
+ }
+}
+```
+
+# Update submission statuses in Prolific
+```{r}
+# Create input document for which statuses to apply
+prolific_determine_statuses_1 <- file.path(r_dir, "Step 3.2 - data for appoval + denial in Prolific/full_survey_prolific_statuses_15May25_AK.Rmd")
+
+# Create formatted plan to pass to prolific API
+prolific_generate_review_plan_1 <- file.path(python_dir, "Prolific API/Python files/generate_review_plan.py")
+
+# Use prolific API to update submission statuses and pay people
+prolific_handle_submissions_1 <- file.path(python_dir, "Prolific API/Python files/execute_prolific_actions.py")
+```
+
+# Clean data for sharing
+```{r}
+# Format the final data as needed for sharing with the team
+final_formatting_1 <- file.path(r_dir, "Step 4 - Prepare data for sharing/full_survey_final_data_prep_15May25_AK.Rmd")
+```
+
+# Running all scripts
+```{r}
+# Check if files exist
+print(paste("Qualtrics export exists:", file.exists(qualtrics_export_1)))
+print(paste("Cleaning script exists:", file.exists(cleaning_1)))
+print(paste("Rejection script exists:", file.exists(rejection_1)))
+print(paste("Available tasks script exists:", file.exists(available_tasks_1)))
+print(paste("Qualtrics update script exists:", file.exists(qualtrics_update_embedded_data_1)))
+print(paste("Prolific statuses script exists:", file.exists(prolific_determine_statuses_1)))
+print(paste("Prolific review plan script exists:", file.exists(prolific_generate_review_plan_1)))
+print(paste("Prolific submissions script exists:", file.exists(prolific_handle_submissions_1)))
+print(paste("Final formatting script exists:", file.exists(final_formatting_1)))
+
+# Run all scripts in order
+print("Running Qualtrics export")
+system(paste("python3", shQuote(qualtrics_export_1)))
+
+print("Running Step 1: Data cleaning")
+rmarkdown::render(cleaning_1, quiet = TRUE)
+
+print("Running Step 2: Removing participants")
+rmarkdown::render(rejection_1, quiet = TRUE)
+
+print("Running Step 3.1: Listing task instances and occupations")
+rmarkdown::render(available_tasks_1, quiet = TRUE)
+
+# Updating available task instances in database - NOT DONE
+success <- send_data(your_data, "https://your-api.com/endpoint", "your-key")
+
+# Updating Google Sheet in Prolific
+## Getting remaining occupations list
+remaining_occupation_list <- read.csv("/Users/adamkuzee/MIT Dropbox/adam/LLM survey/FULL SURVEY/Code and data/FULL SURVEY data/Remaining occupation list/remaining_occupaiton_list.csv")
+
+# Updating Sheet
+gs4_auth()  
+range_write("1X2nu8GLhDcp5-Z24ytEzt2GbWNeuS7VLw84Owc1OH4M", remaining_occupation_list, sheet = "remaining_occupation_list", range = "A1")
+
+print("Running Qualtrics embedded data update")
+system(paste("python3", shQuote(qualtrics_update_embedded_data_1)))
+
+print("Running Step 3.2: Data for approval + denial in Prolific")
+rmarkdown::render(prolific_determine_statuses_1, quiet = TRUE)
+
+print("Running Prolific review plan generation")
+system(paste("python3", shQuote(prolific_generate_review_plan_1)))
+
+print("Running Prolific submissions handling")
+## ONLY RUN THIS WHEN THE REVIEW PLAN HAS BEEN VERIFIED
+#system(paste("python3", shQuote(prolific_handle_submissions_1)))
+
+print("Running Step 4: Prepare data for sharing")
+rmarkdown::render(final_formatting_1, quiet = TRUE)
+
+print("All scripts completed successfully!")
+```
+
+
