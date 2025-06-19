@@ -1,6 +1,0 @@
-task_id,occupation_id,available,task_url,response_url_1,response_url_2,response_url_3,response_url_4,response_url_5
-task001,software_engineer,true,https://example.com/task001.pdf,https://example.com/response001_1.pdf,https://example.com/response001_2.pdf,https://example.com/response001_3.pdf,https://example.com/response001_4.pdf,https://example.com/response001_5.pdf
-task001,data_scientist,true,https://example.com/task001.pdf,https://example.com/response001_1.pdf,https://example.com/response001_2.pdf,https://example.com/response001_3.pdf,https://example.com/response001_4.pdf,https://example.com/response001_5.pdf
-task002,software_engineer,true,https://example.com/task002.pdf,https://example.com/response002_1.pdf,https://example.com/response002_2.pdf,https://example.com/response002_3.pdf,https://example.com/response002_4.pdf,https://example.com/response002_5.pdf
-task002,data_scientist,true,https://example.com/task002.pdf,https://example.com/response002_1.pdf,https://example.com/response002_2.pdf,https://example.com/response002_3.pdf,https://example.com/response002_4.pdf,https://example.com/response002_5.pdf
-task003,product_manager,true,https://example.com/task003.pdf,https://example.com/response003_1.pdf,https://example.com/response003_2.pdf,https://example.com/response003_3.pdf,https://example.com/response003_4.pdf,https://example.com/response003_5.pdf 
